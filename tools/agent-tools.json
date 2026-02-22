@@ -1,0 +1,62 @@
+{
+  "description": "n8n workflow — Agent Tools for FixRight Appliances Voice AI Agent",
+  "tools": [
+    {
+      "name": "time",
+      "trigger": "Webhook (GET) — Отримання дати та часу",
+      "description": "Returns current date and time in CT (America/Chicago). Called silently at conversation start and before PostEvent.",
+      "flow": "Webhook → Date & Time node → Respond to Webhook",
+      "webhook_path": "493c4567-4178-4cfb-aa2f-dabdfc04e16e"
+    },
+    {
+      "name": "Get_slots",
+      "trigger": "Webhook (GET) — Отримання слотів техніків",
+      "description": "Checks Google Calendar for available technician slots. Returns availability in 3-hour windows: 8-11 AM, 11 AM-2 PM, 2-5 PM, 5-8 PM. Includes past/busy/free status per window.",
+      "flow": "Webhook → Get many events (Google Calendar) → Aggregate → Code1 (slot logic) → Respond to Webhook",
+      "webhook_path": "f65c559c-e62d-49e0-b8b6-1c8f0c9f89c5",
+      "key_logic": "Code node calculates available 3-hour windows based on current CT time, marks past slots, checks for calendar conflicts"
+    },
+    {
+      "name": "PostEvent",
+      "trigger": "Webhook (POST) — Занесення події в календар",
+      "description": "Creates a Google Calendar event after full client confirmation. Sends Telegram notification to manager with all booking details.",
+      "flow": "Webhook → Edit Fields (map body params) → Create an event (Google Calendar) → Send Telegram message → Separator message",
+      "webhook_path": "dc5a7458-7929-49ac-b500-d6b503818bed",
+      "input_fields": [
+        "appointment_datetime_start",
+        "appointment_datetime_end",
+        "event_summary",
+        "full_address",
+        "customer_name",
+        "phone_number",
+        "appliance_type",
+        "brand_model",
+        "problem_description",
+        "detailed_summary",
+        "gate_code",
+        "zip_code"
+      ]
+    },
+    {
+      "name": "pre_call_spam_filter",
+      "trigger": "Webhook (POST) — Отримання даних перед викликом",
+      "description": "Anti-spam pre-call filter using Twilio Lookup API + Nomorobo spam score. Rejects calls with spam score > 0 before connecting to ElevenLabs agent.",
+      "flow": "Webhook → HTTP Request (Twilio Lookup API + Nomorobo) → IF (spam_score == 0?) → Respond to Webhook (allow/block)",
+      "webhook_path": "81e6b1ed-c9ff-4463-89ee-2cd5c3c6ea35",
+      "cost_saving": "Blocks spam/robocalls before ElevenLabs charges apply (~$0.10-0.20 per filtered call)"
+    }
+  ],
+  "bonus_workflow": {
+    "name": "post_call_analysis",
+    "trigger": "Webhook (POST) — ElevenLabs post-call webhook",
+    "description": "Receives full call transcript after each conversation. Extracts call data, sends audio to Telegram, runs GPT-4.1-mini analysis for booking/ZIP/appliance/issue detection.",
+    "flow": "Webhook → IF (full_audio exists?) → [with audio: Edit Fields → Convert to File → Wait → Send audio to Telegram → Separator] / [transcript only: Code (parse transcript) → GPT-4.1-mini analysis → Send analysis to Telegram]",
+    "integration": "ElevenLabs post_call_transcription webhook → n8n → OpenAI GPT-4.1-mini → Telegram"
+  },
+  "infrastructure": {
+    "n8n_host": "self-hosted on Elestio",
+    "calendar": "fixrightappliances@gmail.com (Google Calendar OAuth2)",
+    "telegram_chat_id": "-1002737463666",
+    "timezone": "America/Chicago"
+  }
+}
