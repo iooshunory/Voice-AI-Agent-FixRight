@@ -1,62 +1,845 @@
 {
-  "description": "n8n workflow — Agent Tools for FixRight Appliances Voice AI Agent",
-  "tools": [
+  "name": "Agent tools",
+  "nodes": [
     {
-      "name": "time",
-      "trigger": "Webhook (GET) — Отримання дати та часу",
-      "description": "Returns current date and time in CT (America/Chicago). Called silently at conversation start and before PostEvent.",
-      "flow": "Webhook → Date & Time node → Respond to Webhook",
-      "webhook_path": "493c4567-4178-4cfb-aa2f-dabdfc04e16e"
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "preview",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        336,
+        1120
+      ],
+      "id": "7e671043-bb69-4f30-bcbb-81948d81e111",
+      "name": "Webhook"
     },
     {
-      "name": "Get_slots",
-      "trigger": "Webhook (GET) — Отримання слотів техніків",
-      "description": "Checks Google Calendar for available technician slots. Returns availability in 3-hour windows: 8-11 AM, 11 AM-2 PM, 2-5 PM, 5-8 PM. Includes past/busy/free status per window.",
-      "flow": "Webhook → Get many events (Google Calendar) → Aggregate → Code1 (slot logic) → Respond to Webhook",
-      "webhook_path": "f65c559c-e62d-49e0-b8b6-1c8f0c9f89c5",
-      "key_logic": "Code node calculates available 3-hour windows based on current CT time, marks past slots, checks for calendar conflicts"
+      "parameters": {
+        "jsCode": "// n8n Code Node для обробки транскрипту дзвінка\nconst webhookData = $input.all();\nfunction formatTime(seconds) {\n  const minutes = Math.floor(seconds / 60);\n  const remainingSeconds = seconds % 60;\n  return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;\n}\nfunction processWebhookData(data) {\n  try {\n    if (!data.body || !data.body.data || !data.body.data.transcript) {\n      return {\n        error: 'Невірна структура даних',\n        conversation_id: '',\n        agent_id: '',\n        call_duration: '',\n        call_date: '',\n        caller_number: '',\n        called_number: '',\n        messages_text: ''\n      };\n    }\n    const conversationData = data.body.data;\n    const transcript = conversationData.transcript;\n    const metadata = conversationData.metadata;\n    const callDuration = `${metadata.call_duration_secs} секунд`;\n    const callDate = new Date(metadata.start_time_unix_secs * 1000).toLocaleString('uk-UA');\n    const callerNumber = conversationData.conversation_initiation_client_data?.dynamic_variables?.system__caller_id || 'Невідомо';\n    const calledNumber = conversationData.conversation_initiation_client_data?.dynamic_variables?.system__called_number || 'Невідомо';\n    let messagesText = '';\n    transcript.forEach((entry, index) => {\n      if (!entry.message && entry.tool_calls.length === 0) {\n        return;\n      }\n      const timeFormatted = formatTime(entry.time_in_call_secs);\n      const speaker = entry.role === 'agent' ? 'АГЕНТ' : 'КОРИСТУВАЧ';\n      messagesText += `[${timeFormatted}] ${speaker}: `;\n      if (entry.message) {\n        messagesText += entry.message;\n      } else if (entry.tool_calls && entry.tool_calls.length > 0) {\n        const toolCall = entry.tool_calls[0];\n        if (toolCall.tool_name === 'end_call') {\n          messagesText += '(Завершення дзвінка)';\n        } else {\n          messagesText += `(Використано інструмент: ${toolCall.tool_name})`;\n        }\n      }\n      messagesText += '\\n';\n      if (entry.interrupted && entry.original_message) {\n        messagesText += `    [ПЕРЕРВАНО] Повне повідомлення: ${entry.original_message}\\n`;\n      }\n    });\n    return {\n      conversation_id: conversationData.conversation_id,\n      agent_id: conversationData.agent_id,\n      call_duration: callDuration,\n      call_date: callDate,\n      caller_number: callerNumber,\n      called_number: calledNumber,\n      messages_text: messagesText\n    };\n  } catch (error) {\n    return {\n      error: `Помилка обробки: ${error.message}`,\n      conversation_id: '',\n      agent_id: '',\n      call_duration: '',\n      call_date: '',\n      caller_number: '',\n      called_number: '',\n      messages_text: ''\n    };\n  }\n}\nconst results = [];\nwebhookData.forEach((item, index) => {\n  const processed = processWebhookData(item.json);\n  results.push({\n    json: {\n      index: index,\n      ...processed,\n      processed_at: new Date().toISOString()\n    }\n  });\n});\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        1136
+      ],
+      "id": "26fe5e54-7d36-4732-982a-ab343e4fe68b",
+      "name": "Code"
     },
     {
-      "name": "PostEvent",
-      "trigger": "Webhook (POST) — Занесення події в календар",
-      "description": "Creates a Google Calendar event after full client confirmation. Sends Telegram notification to manager with all booking details.",
-      "flow": "Webhook → Edit Fields (map body params) → Create an event (Google Calendar) → Send Telegram message → Separator message",
-      "webhook_path": "dc5a7458-7929-49ac-b500-d6b503818bed",
-      "input_fields": [
-        "appointment_datetime_start",
-        "appointment_datetime_end",
-        "event_summary",
-        "full_address",
-        "customer_name",
-        "phone_number",
-        "appliance_type",
-        "brand_model",
-        "problem_description",
-        "detailed_summary",
-        "gate_code",
-        "zip_code"
-      ]
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "32617a26-1045-4322-881b-67b7a069e6f7",
+              "leftValue": "={{ $json.body.data.full_audio }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        544,
+        1120
+      ],
+      "id": "d591aef8-d7aa-4a4a-802a-f5d7bf00e99e",
+      "name": "If"
     },
     {
-      "name": "pre_call_spam_filter",
-      "trigger": "Webhook (POST) — Отримання даних перед викликом",
-      "description": "Anti-spam pre-call filter using Twilio Lookup API + Nomorobo spam score. Rejects calls with spam score > 0 before connecting to ElevenLabs agent.",
-      "flow": "Webhook → HTTP Request (Twilio Lookup API + Nomorobo) → IF (spam_score == 0?) → Respond to Webhook (allow/block)",
-      "webhook_path": "81e6b1ed-c9ff-4463-89ee-2cd5c3c6ea35",
-      "cost_saving": "Blocks spam/robocalls before ElevenLabs charges apply (~$0.10-0.20 per filtered call)"
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "audio",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        928,
+        1296
+      ],
+      "id": "ac5e1068-8800-4804-b536-05354f0c0f10",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b13b33b4-8bb4-4ae3-ba03-5b02c49005e7",
+              "name": "audio",
+              "value": "={{ $json.body.data.full_audio }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        768,
+        1296
+      ],
+      "id": "dd80fbbc-204b-4004-ac02-1238d9f7cb82",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "preview",
+          "mode": "id"
+        },
+        "returnAll": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        560,
+        656
+      ],
+      "id": "b7d8356b-1d4e-40d2-9fb4-03eb41c12375",
+      "name": "Get many events",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        768,
+        656
+      ],
+      "id": "bc1b01f0-5422-4997-bff9-4a2efef27a26",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1168,
+        656
+      ],
+      "id": "740b5ee1-cd0b-4c53-af72-2c249566d510",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "preview",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        352,
+        480
+      ],
+      "id": "22ba4ea2-a1e0-4d78-b985-101a73227bd8",
+      "name": "Занесення події в календар"
+    },
+    {
+      "parameters": {
+        "path": "preview",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        352,
+        656
+      ],
+      "id": "ee0371de-6e20-4f18-8180-b1ce8c09c732",
+      "name": "Отримання слотів техніків"
+    },
+    {
+      "parameters": {
+        "content": "# Отримання запису розмови",
+        "height": 576,
+        "width": 1360,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        1040
+      ],
+      "id": "da0b7070-2220-410d-82a5-37f5c7c79598",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dateTime",
+      "typeVersion": 2,
+      "position": [
+        560,
+        304
+      ],
+      "id": "3012ebeb-e99d-4ba1-8986-749a56691414",
+      "name": "Date & Time"
+    },
+    {
+      "parameters": {
+        "path": "preview",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        352,
+        304
+      ],
+      "id": "6c0a3f64-2eb1-4ff2-ac7c-0b27f19694f0",
+      "name": "Отримання дати та часу"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        768,
+        304
+      ],
+      "id": "5442b08c-0f99-44c5-be19-d42843849940",
+      "name": "Respond to Webhook2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ec0c51ef-68dd-4b19-933b-a429c2dac9ef",
+              "name": "Адреса",
+              "value": "={{ $json.body.full_address }}",
+              "type": "string"
+            },
+            {
+              "id": "b75ce02e-4d5a-4142-878b-1055e779a4c8",
+              "name": "gate_code",
+              "value": "={{ $json.body.gate_code }}",
+              "type": "string"
+            },
+            {
+              "id": "d3ac280c-5fc0-4142-b3ed-5c5d41f0df5d",
+              "name": "Номер телефону",
+              "value": "={{ $json.body.phone_number }}",
+              "type": "string"
+            },
+            {
+              "id": "ef00647a-3101-4317-aad1-ecd5acb6a386",
+              "name": "Зіп код",
+              "value": "={{ $json.body.zip_code }}",
+              "type": "string"
+            },
+            {
+              "id": "11338f53-67d2-4f48-9638-df69589db7ea",
+              "name": "Ім'я",
+              "value": "={{ $json.body.customer_name }}",
+              "type": "string"
+            },
+            {
+              "id": "570bd769-c267-46a7-a61f-33733e232d1e",
+              "name": "Тип техніки",
+              "value": "={{ $json.body.appliance_type }}",
+              "type": "string"
+            },
+            {
+              "id": "871ae97e-6754-4ef8-b45f-9bcd20a303bd",
+              "name": "Бренд техніки",
+              "value": "={{ $json.body.brand_model }}",
+              "type": "string"
+            },
+            {
+              "id": "2bcbcdcf-c543-4a37-ba1e-2dbdb405b53f",
+              "name": "Проблема з якою звертаються",
+              "value": "={{ $json.body.problem_description }}",
+              "type": "string"
+            },
+            {
+              "id": "eb5d9c72-a686-43b8-80a8-9ac016e01acb",
+              "name": "Час на який записано",
+              "value": "={{ $json.body.appointment_datetime_start }}",
+              "type": "string"
+            },
+            {
+              "id": "b13865a2-5e0f-4bce-9797-25c9d1db1326",
+              "name": "Час завершення візиту техніка",
+              "value": "={{ $json.body.appointment_datetime_end }}",
+              "type": "string"
+            },
+            {
+              "id": "f4b45141-4c3c-400c-8bb9-beb75e5a6b5a",
+              "name": "саммарі",
+              "value": "={{ $json.body.detailed_summary }}",
+              "type": "string"
+            },
+            {
+              "id": "e484646f-ce85-4679-9020-bedbffc1f23a",
+              "name": "event_summary",
+              "value": "={{ $json.body.event_summary }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        560,
+        480
+      ],
+      "id": "41e8fadd-fc6e-4583-bd1e-d29e12a7ff83",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "preview",
+          "mode": "id"
+        },
+        "start": "={{ $json['Час на який записано'] }}",
+        "end": "={{ $json['Час завершення візиту техніка'] }}",
+        "additionalFields": {
+          "attendees": [],
+          "description": "={{ $json['саммарі'] }}\nНомер телефону: {{ $json['Номер телефону'] }}",
+          "location": "={{ $json['Адреса'] }}",
+          "summary": "={{ $json.event_summary }}"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        768,
+        480
+      ],
+      "id": "787c1ce0-92d4-4c1a-92bd-835d706e1af4",
+      "name": "Create an event"
+    },
+    {
+      "parameters": {
+        "content": "# Отримання дати та часу\n",
+        "height": 208,
+        "width": 704
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        256,
+        240
+      ],
+      "typeVersion": 1,
+      "id": "182b9406-a0a4-4958-951b-4bdc8d3aaad8",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "chatId": "preview",
+        "text": "=🔧 <b>NEW SERVICE REQUEST</b> 🔧\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n👤 <b>Client:</b> {{ $('Edit Fields1').item.json[\"Ім'я\"] }}\n📱 <b>Contact:</b> {{ $('Edit Fields1').item.json[\"Номер телефону\"] }}\n🏡 <b>Location:</b> {{ $('Edit Fields1').item.json[\"Адреса\"] }}\n📮 <b>ZIP:</b> {{ $('Edit Fields1').item.json[\"Зіп код\"] }}\n{{ $('Edit Fields1').item.json.gate_code ? '🔑 <b>Access:</b> ' + $('Edit Fields1').item.json.gate_code : '' }}\n\n⚡ <b>ISSUE DETAILS</b>\n🔹 <b>Device:</b> {{ $('Edit Fields1').item.json['Тип техніки'] }} - {{ $('Edit Fields1').item.json['Бренд техніки'] }}\n🔹 <b>Problem:</b> {{ $('Edit Fields1').item.json['Проблема з якою звертаються'] }}\n\n📅 <b>SCHEDULED</b>\n⏰ <b>Time Slot:</b> {{ new Date($('Edit Fields1').item.json['Час на який записано']).toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit', hour12: true}) }} → {{ new Date($('Edit Fields1').item.json['Час завершення візиту техніка']).toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit', hour12: true}) }}\n📅 <b>Date:</b> {{ $('Edit Fields1').item.json['Час на який записано'].split('T')[0] }}\n💵 <b>Service Fee:</b> [ENTER_FEE]\n\n✅ <b>Status:</b> CONFIRMED\n📋 <b>Note:</b> Diagnostic fee waived if repair proceeds\n━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        960,
+        480
+      ],
+      "id": "1b8c3316-80d6-4f9b-96a2-9b3e3e78885f",
+      "name": "Send a text message1"
+    },
+    {
+      "parameters": {
+        "operation": "sendAudio",
+        "chatId": "preview",
+        "binaryData": true,
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1296,
+        1440
+      ],
+      "id": "04061c85-54d9-4308-878a-707a35f1063c",
+      "name": "Send an audio file"
+    },
+    {
+      "parameters": {
+        "chatId": "preview",
+        "text": "-----------------------------------",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1472,
+        1440
+      ],
+      "id": "b92b0db7-6d37-4a11-af41-6fc17c4193ad",
+      "name": "Send a text message2",
+      "retryOnFail": true,
+      "waitBetweenTries": 500
+    },
+    {
+      "parameters": {
+        "chatId": "preview",
+        "text": "-----------------------------------",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1152,
+        480
+      ],
+      "id": "0ac4f1f3-c562-4ea8-9739-b7fb5fb11f48",
+      "name": "Send a text message3"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "preview",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        352,
+        816
+      ],
+      "id": "08293847-22c7-47e2-bb93-e4543a1d09e0",
+      "name": "Отримання данних перед викликом"
+    },
+    {
+      "parameters": {
+        "url": "=https://lookups.twilio.com/v1/PhoneNumbers/{{ $json.body.caller_id }}?AddOns=nomorobo_spamscore",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        816
+      ],
+      "id": "3f50aabf-5d5a-4c18-b96d-5afd3b9ac6ab",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1d8652cd-7bce-4ae5-ace0-2893dbabfdf5",
+              "leftValue": "={{ $json.add_ons.results.nomorobo_spamscore.result.score }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        768,
+        816
+      ],
+      "id": "65c77ea6-1bf0-4986-9664-b8b3d9444f19",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        992,
+        800
+      ],
+      "id": "9068d538-4ab1-40f6-9d73-cd0450648dce",
+      "name": "Respond to Webhook3"
+    },
+    {
+      "parameters": {
+        "chatId": "preview",
+        "text": "={{ $json.message.content }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1360,
+        1136
+      ],
+      "id": "0d886687-bf18-48e0-9af5-fe084d09f2fe",
+      "name": "Send a text message4"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Транскрипт: {{ $json.messages_text }}\nТелефон: {{ $json.caller_number }}"
+            },
+            {
+              "content": "=**Role:** You are a call analyst.\n**Input:** One line of transcript text (`messages_text`) with timestamps and **AGENT/USER** roles.\n**Output:** Brief summary in English in fixed format (see \"Response Format\").\n\n## What to extract from transcript\n\n1. **New booking (appointment)** — indicate \"✅ YES\" if there are clear indicators of record creation:\n   • phrases like: \"You're scheduled...\", \"Your appointment is scheduled...\"\n   • service notation: \"(Used tool: PostEvent)\" / \"(Використано інструмент: PostEvent)\"\n   If time/date/window mentioned — add them. If mention \"today/tomorrow/day after tomorrow\" without exact date — write as is (don't calculate date).\n\n2. **ZIP** — find last valid 5-digit ZIP in text (first in USER replies; if none — allowed from AGENT confirmation). Classify: **in zone / out of zone / unknown**.\n   \"In zone\" list: [ZIP_CODES_LIST].\n   If ZIP not found — \"unknown\".\n\n3. **Appliance (equipment type)** — normalize name: washer, dryer, fridge, dishwasher, oven, range/stove, cooktop, microwave, freezer, etc. If unknown — \"unknown\". If user already mentioned — don't \"demand\" repeat, just record.\n\n4. **Issue (problem)** — short phrase from user side (or agent rephrase that client confirmed): \"won't turn on\", \"not draining\", \"door won't open\", \"leaking\", etc. If none — \"unknown\".\n\n## Rules\n\n* Don't invent data. If something missing — write \"unknown\".\n* Ignore profanity/extra replies; take only essence.\n* Work exclusively with transcript text; don't expect other fields (call date, etc.).\n* If both specific time and window mentioned, output what was **confirmed during booking**.\n\n## Response Format (strict)\n\n📞 **CALL ANALYSIS**\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📅 **New Booking:** <✅ YES / ❌ NO> <(if yes: time/date or formulation like \"tomorrow at 11:00 AM\")>\n📍 **ZIP Code:** <XXXXX or \"unknown\"> — <in zone/out of zone/unknown>\n🔧 **Appliance:** <name or \"unknown\">\n⚠️ **Issue:** <briefly or \"unknown\">\n📝 **Summary:** <1 concise sentence about result/context>\n📞 **Phone:** {{ $json.caller_number }}",
+              "role": "system"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        960,
+        1136
+      ],
+      "id": "e8074be5-c6d2-45f9-bf33-1bb6b0c16c6f",
+      "name": "Message a model"
+    },
+    {
+      "parameters": {
+        "amount": 7
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1104,
+        1296
+      ],
+      "id": "af60bb58-9784-49c6-9aa1-84b7dd2d6544",
+      "name": "Wait"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Helper: pad\nconst p2 = (n) => String(n).padStart(2, '0');\n\n// Convert Date -> parts in TZ\nfunction toPartsInTZ(date, timeZone = 'America/Chicago') {\n  const fmt = new Intl.DateTimeFormat('en-US', {\n    timeZone,\n    year: 'numeric', month: '2-digit', day: '2-digit',\n    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',\n  });\n  const parts = fmt.formatToParts(date);\n  const pick = (t) => Number(parts.find(x => x.type === t).value);\n  return { y: pick('year'), M: pick('month'), d: pick('day'), h: pick('hour'), m: pick('minute') };\n}\n\nconst key = ({ y, M, d }) => `${y}-${p2(M)}-${p2(d)}`;\nconst hhmm = ({ h, m }) => `${p2(h)}:${p2(m)}`;\nconst mins = ({ h, m }) => h * 60 + m;\n\n// 3-часовые окна (CT)\nconst WINDOWS = [\n  { label: '8–11 AM',  start:  8 * 60, end: 11 * 60 },\n  { label: '11 AM–2 PM', start: 11 * 60, end: 14 * 60 },\n  { label: '2–5 PM',   start: 14 * 60, end: 17 * 60 },\n  { label: '5–8 PM',   start: 17 * 60, end: 20 * 60 },\n];\n\n// Жёсткая блокировка слота спустя X минут после старта (требование: 8:01, 11:01, ...)\nconst LOCK_MIN_AFTER_START = 1; // минута\n\n// ---- 1) Нормализация входа\nlet events = [];\ntry {\n  if (items?.[0]?.json?.data && Array.isArray(items[0].json.data)) {\n    events = items[0].json.data;\n  } else if (Array.isArray(items)) {\n    events = items.map(i => i?.json).filter(Boolean);\n  }\n} catch (_) {\n  events = [];\n}\n\n// ---- 2) Сегменты занятости по дням (CT)\nconst segmentsByDay = {};\n\n// Утилиты для all-day\nfunction ymd(str) {\n  const [Y, M, D] = String(str).split('-').map(Number);\n  return { y: Y, M: M, d: D };\n}\nfunction ymdToKey(ymdObj) {\n  return `${ymdObj.y}-${p2(ymdObj.M)}-${p2(ymdObj.d)}`;\n}\nfunction addDaysUTC(ymdObj, delta) {\n  const dt = new Date(Date.UTC(ymdObj.y, ymdObj.M - 1, ymdObj.d, 0, 0, 0));\n  dt.setUTCDate(dt.getUTCDate() + delta);\n  return { y: dt.getUTCFullYear(), M: dt.getUTCMonth() + 1, d: dt.getUTCDate() };\n}\nfunction pushSeg(dayKey, startMin, endMin, ev) {\n  if (!segmentsByDay[dayKey]) segmentsByDay[dayKey] = [];\n  segmentsByDay[dayKey].push({\n    startMin, endMin,\n    id: ev?.id || null,\n    summary: ev?.summary || null,\n    location: ev?.location || null,\n  });\n}\n\nfor (const ev of events) {\n  const hasDT = ev?.start?.dateTime && ev?.end?.dateTime;\n  const hasD  = ev?.start?.date && ev?.end?.date; // all-day, end.date exclusive\n  if (!hasDT && !hasD) continue;\n\n  if (hasDT) {\n    // timed\n    const s = new Date(ev.start.dateTime);\n    const e = new Date(ev.end.dateTime);\n    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) continue;\n\n    const sp = toPartsInTZ(s);\n    const ep = toPartsInTZ(e);\n    const ks = key(sp), ke = key(ep);\n    const startMin = mins(sp), endMin = mins(ep);\n\n    if (ks === ke) {\n      pushSeg(ks, startMin, endMin, ev);\n    } else {\n      // пересечение полуночи в CT\n      pushSeg(ks, startMin, 24 * 60, ev);\n      pushSeg(ke, 0, endMin, ev);\n    }\n  } else if (hasD) {\n    // all-day: занимаем 00:00–24:00 CT для каждого дня диапазона\n    const startYMD = ymd(ev.start.date);\n    const endYMD_excl = ymd(ev.end.date); // exclusive\n    for (\n      let cur = startYMD, curKey = ymdToKey(cur);\n      curKey < ymdToKey(endYMD_excl);\n      cur = addDaysUTC(cur, 1), curKey = ymdToKey(cur)\n    ) {\n      pushSeg(curKey, 0, 24 * 60, ev);\n    }\n  }\n}\n\n// ---- 3) Сегодня/завтра в CT\nconst now = new Date();\nconst nowCT = toPartsInTZ(now);\nconst nowCTStr = `${key(nowCT)}T${hhmm(nowCT)}`;\nconst tomorrowGuess = new Date(now.getTime() + 24 * 3600 * 1000);\nconst tomorrowCT = toPartsInTZ(tomorrowGuess);\nconst daysWanted = [key(nowCT), key(tomorrowCT)];\n\n// ---- 4) Построение статусов окон (busy/free/past) + жёсткая блокировка после старта\nfunction dayPayload(dayKey) {\n  const segs = segmentsByDay[dayKey] || [];\n  const busy = new Set();\n  for (const w of WINDOWS) {\n    for (const seg of segs) {\n      const a1 = Math.max(w.start, seg.startMin);\n      const a2 = Math.min(w.end, seg.endMin);\n      if (a2 > a1) { busy.add(w.label); break; }\n    }\n  }\n\n  const isToday = dayKey === key(nowCT);\n  const nowMin = mins(nowCT);\n\n  const windows = WINDOWS.map(w => {\n    // 1) Якщо сьогодні і час >= старт+LOCK_MIN_AFTER_START — слот назавжди недоступний\n    if (isToday && nowMin >= (w.start + LOCK_MIN_AFTER_START)) {\n      return {\n        label: w.label,\n        start: `${p2(Math.floor(w.start / 60))}:${p2(w.start % 60)}`,\n        end:   `${p2(Math.floor(w.end   / 60))}:${p2(w.end   % 60)}`,\n        status: 'past'\n      };\n    }\n\n    // 2) Інакше звичайна логіка зайнятості\n    const status = busy.has(w.label) ? 'busy' : 'free';\n    return {\n      label: w.label,\n      start: `${p2(Math.floor(w.start / 60))}:${p2(w.start % 60)}`,\n      end:   `${p2(Math.floor(w.end   / 60))}:${p2(w.end   % 60)}`,\n      status\n    };\n  });\n\n  return { date_ct: dayKey, windows_ct: windows };\n}\n\n// ---- 5) Стисла діагностика для timed-подій (без all-day)\nconst events_ct = [];\nfor (const ev of events) {\n  if (ev?.start?.dateTime && ev?.end?.dateTime) {\n    const s = new Date(ev.start.dateTime);\n    const e = new Date(ev.end.dateTime);\n    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) continue;\n    const sp = toPartsInTZ(s), ep = toPartsInTZ(e);\n    events_ct.push({\n      id: ev.id || null,\n      summary: ev.summary || null,\n      date_ct: key(sp) === key(ep) ? key(sp) : `${key(sp)}→${key(ep)}`,\n      start_ct: `${key(sp)}T${hhmm(sp)}`,\n      end_ct: `${key(ep)}T${hhmm(ep)}`,\n      location: ev.location || null,\n    });\n  }\n}\n\n// ---- Вихід\nconst out = {\n  meta: {\n    tz_output: 'America/Chicago',\n    now_ct: nowCTStr,\n    note: 'Windows: 8–11, 11–2, 2–5, 5–8 CT; statuses: busy/free/past; lock after start: 1 min',\n  },\n  availability: daysWanted.map(dayPayload),\n  events_ct\n};\n\nreturn [{ json: out }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        976,
+        656
+      ],
+      "id": "1edd24f0-a986-4506-af03-f4730ce7279f",
+      "name": "Code1"
     }
   ],
-  "bonus_workflow": {
-    "name": "post_call_analysis",
-    "trigger": "Webhook (POST) — ElevenLabs post-call webhook",
-    "description": "Receives full call transcript after each conversation. Extracts call data, sends audio to Telegram, runs GPT-4.1-mini analysis for booking/ZIP/appliance/issue detection.",
-    "flow": "Webhook → IF (full_audio exists?) → [with audio: Edit Fields → Convert to File → Wait → Send audio to Telegram → Separator] / [transcript only: Code (parse transcript) → GPT-4.1-mini analysis → Send analysis to Telegram]",
-    "integration": "ElevenLabs post_call_transcription webhook → n8n → OpenAI GPT-4.1-mini → Telegram"
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many events": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Занесення події в календар": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отримання слотів техніків": {
+      "main": [
+        [
+          {
+            "node": "Get many events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Date & Time": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отримання дати та часу": {
+      "main": [
+        [
+          {
+            "node": "Date & Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Create an event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create an event": {
+      "main": [
+        [
+          {
+            "node": "Send a text message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a text message1": {
+      "main": [
+        [
+          {
+            "node": "Send a text message3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send an audio file": {
+      "main": [
+        [
+          {
+            "node": "Send a text message2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отримання данних перед викликом": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Send a text message4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Send an audio file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "infrastructure": {
-    "n8n_host": "self-hosted on Elestio",
-    "calendar": "fixrightappliances@gmail.com (Google Calendar OAuth2)",
-    "telegram_chat_id": "-1002737463666",
-    "timezone": "America/Chicago"
-  }
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "c8d1beef-02f6-4ba7-9997-7fe21b842be3",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "229b39550a2e76e3694b0ab9df440b6248bd7a539de321f2c46f22b4373f43bb"
+  },
+  "id": "40B23WMs4KHV3qFc",
+  "tags": []
 }
